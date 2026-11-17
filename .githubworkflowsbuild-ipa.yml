@@ -1,0 +1,49 @@
+name: Build unsigned IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack uploaded project zip (if any)
+        run: |
+          shopt -s nullglob
+          for z in *.zip; do unzip -o -q "$z" -d _unzipped -x '__MACOSX/*'; done
+
+      - name: Build and package IPA
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          PROJ="$(find . -name AimTrack.xcodeproj -type d -not -path '*/build/*' -not -path '*__MACOSX*' | head -n 1)"
+          if [ -z "$PROJ" ]; then echo "AimTrack.xcodeproj not found"; exit 1; fi
+          echo "Using $PROJ"
+          cd "$(dirname "$PROJ")"
+          xcodebuild \
+            -project AimTrack.xcodeproj \
+            -target AimTrack \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/build" \
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          mkdir -p "$GITHUB_WORKSPACE/dist/Payload"
+          cp -R build/Release-iphoneos/AimTrack.app "$GITHUB_WORKSPACE/dist/Payload/"
+          cd "$GITHUB_WORKSPACE/dist"
+          zip -qry AimTrack-unsigned.ipa Payload
+          ls -la AimTrack-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AimTrack-unsigned-ipa
+          path: dist/AimTrack-unsigned.ipa
+          if-no-files-found: error
